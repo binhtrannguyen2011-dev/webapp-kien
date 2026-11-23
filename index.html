@@ -4393,7 +4393,8 @@ render();
       const m = String((b.error && (b.error.message || b.error)) || r.status);
       const er = Error(who + " báo lỗi: " + m);
       er.status = r.status;
-      er.quota = r.status === 429 || /quota|exhaust|rate.?limit|billing|credit|insufficient|overloaded/i.test(m);
+      er.busy = [500, 502, 503, 504, 529].includes(r.status) || /high demand|overload|unavailable|try again later|temporarily/i.test(m);
+      er.quota = !er.busy && (r.status === 429 || /quota|exhaust|rate.?limit|billing|credit|insufficient/i.test(m));
       er.badKey = r.status === 401 || r.status === 403 || /api.?key|invalid.*key|permission/i.test(m);
       throw er;
     }
@@ -4420,7 +4421,8 @@ render();
       } catch (e) {
         err = e;
         if (k.via === "shared" && e.quota) save(SHARED_OUT, Date.now() + 10 * 60000);
-        if (e.timeout) continue; // chờ quá lâu: thử khóa kế tiếp
+        if (!e.busy && /high demand|overload|unavailable|try again later/i.test(String(e.message))) e.busy = true;
+        if (e.timeout || e.busy) continue; // chờ quá lâu hoặc AI quá tải: thử khóa kế tiếp
         if (k.via === "own") {
           if (e.quota) markOwn(k.kid, { out: Date.now() + 15 * 60000 });
           else if (e.badKey) { markOwn(k.kid, { bad: true }); e.ownBad = true; }
@@ -4430,6 +4432,7 @@ render();
       }
     }
     if (err && err.quota) err.allOut = true;
+    if (err && err.busy && !err.timeout) { err.offline = true; err.message = "Máy chủ AI đang quá tải (nhiều người dùng cùng lúc), Kiến đã thử các model khác nhưng chưa được. Dưới đây là đoạn bài giảng liên quan, bạn thử hỏi lại sau ít phút nhé."; }
     if (err && err.timeout) { err.offline = true; err.message = "Kiến chờ AI quá lâu mà chưa có trả lời (mạng chậm hoặc AI đang quá tải). Dưới đây là đoạn tài liệu liên quan, bạn thử hỏi lại sau ít phút nhé."; }
     throw err;
   }
@@ -4499,8 +4502,8 @@ render();
       if (json) gen.responseMimeType = "application/json";
       else if (/2\.5-flash/.test(model)) gen.thinkingConfig = { thinkingBudget: 0 };
       else if (/gemini-[3-9]/.test(model)) gen.thinkingConfig = { thinkingLevel: "low" };
-      const call = (g) => jfetch(
-        "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent",
+      const call = (g, mdl = model) => jfetch(
+        "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(mdl) + ":generateContent",
         {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-goog-api-key": key },
@@ -4511,7 +4514,20 @@ render();
       );
       let b;
       try { b = await call(gen); }
-      catch (e) { if (e.status === 400 && gen.thinkingConfig && /think/i.test(e.message)) { delete gen.thinkingConfig; b = await call(gen); } else throw e; }
+      catch (e) {
+        if (e.status === 400 && gen.thinkingConfig && /think/i.test(e.message)) { delete gen.thinkingConfig; b = await call(gen); }
+        else if (e.busy) {
+          // model đang quá tải: tự thử các model Gemini khác cùng khóa
+          let ok = false, last = e;
+          for (const m2 of ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-flash-latest"].filter((x) => x !== model)) {
+            const g2 = Object.assign({}, gen); delete g2.thinkingConfig;
+            if (!json && /2\.5-flash/.test(m2)) g2.thinkingConfig = { thinkingBudget: 0 };
+            try { b = await call(g2, m2); ok = true; break; }
+            catch (e2) { last = e2; if (!(e2.busy || e2.status === 404 || e2.status === 400)) break; }
+          }
+          if (!ok) throw last.busy || last.status === 404 || last.status === 400 ? e : last;
+        } else throw e;
+      }
       const cand = b.candidates && b.candidates[0];
       text = cand && cand.content && cand.content.parts ? cand.content.parts.map((p) => (p.thought ? "" : p.text || "")).join("") : "";
     }
@@ -15832,12 +15848,12 @@ ${h.length ? `<h3 class="ph-h">Ảnh trước đây</h3><div class="ph-hist">${h
     syncNow: async () => { await flush(); await pull(); },
     async ai(system, user, json) {
       const r = await call("ai", { system, user, json: !!json });
-      if (r.error) { const e = Error(r.error); e.quota = !!r.quota; e.status = r.status; throw e; }
+      if (r.error) { const e = Error(r.error); e.quota = !!r.quota; e.busy = !!r.busy; e.status = r.status; throw e; }
       return r.text || "";
     },
     async relay(K, system, user, json) {
       const r = await call("relay", { pv: K.pv, key: K.key, model: K.model, system, user, json: !!json });
-      if (r.error) { const e = Error(r.error); e.quota = !!r.quota; e.badKey = !!r.badKey; e.status = r.status; throw e; }
+      if (r.error) { const e = Error(r.error); e.quota = !!r.quota; e.busy = !!r.busy; e.badKey = !!r.badKey; e.status = r.status; throw e; }
       return r.text || "";
     },
     _state: () => ({ tok: !!tok, me, since, dirty: [...dirty], lastOk }),
