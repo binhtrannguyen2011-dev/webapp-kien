@@ -3723,6 +3723,15 @@ html body .kp-gvinfo .kp-home-tks .kp-tk span{font-size:11.5px!important}
 @media (max-width:520px){html body .kp-gvinfo .kp-home-tks .kp-tk{padding:8px!important}html body .kp-gvinfo .kp-home-tks .kp-tk b{font-size:16px!important}}
 @media (max-width:520px){html body .kp-gvinfo .kp-home-tks .kp-tk .kp-ico{display:none!important}html body .kp-gvinfo .kp-home-tks .kp-tk small{padding:0!important;margin:0!important;min-height:0!important;display:block}html body .kp-gvinfo .kp-home-tks .kp-tk span:not(.kp-ico){font-size:11px!important}}
 @media (max-width:520px){html body #page-content .kp-gvinfo .kp-tks.kp-home-tks .kp-tk>span.kp-ico{display:none!important}html body #page-content .kp-gvinfo .kp-tks.kp-home-tks .kp-tk{display:block!important}html body #page-content .kp-gvinfo .kp-tks.kp-home-tks .kp-tk>*{display:block}}
+.kp-errcard{border:2px solid #f3b4b4!important}.kp-errcard pre{white-space:pre-wrap;background:#fff5f5;border-radius:10px;padding:10px;font-size:12px;color:#a11}
+/* tiêu đề khung kiểu rs-head: tràn sát mép như card-title, không thụt vào trong */
+html body .card:has(> .rs-head:first-child){padding-top:0!important}
+html body .card > .rs-head:first-child{margin:0 -18px 14px!important;border-radius:11px 11px 0 0!important;padding:12px 18px!important;background:#e6effd!important;border:0!important;border-bottom:1px solid #dad9f7!important;box-shadow:none!important}
+/* ô thống kê gọn: tự chia cột theo bề ngang, không bè to */
+html body #page-content .kp-tks:not(.kp-home-tks){grid-template-columns:repeat(auto-fill,minmax(168px,1fr))!important;gap:10px!important}
+html body #page-content .kp-tks:not(.kp-home-tks) .kp-tk{padding:11px 13px!important;min-height:0!important}
+html body #page-content .kp-tks:not(.kp-home-tks) .kp-tk>b{font-size:22px!important;line-height:1.25!important}
+@media (max-width:420px){html body #page-content .kp-tks:not(.kp-home-tks){grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 
 </style>
 </head><body><div id="app"></div><div id="toast" role="status"></div><dialog id="modal"><div id="modal-body"></div><button class="modal-close icon-button" aria-label="Đóng">✕</button></dialog>
@@ -4291,6 +4300,25 @@ render();
     }
   }
   KP.fillModels = fillModels;
+  // kiểm tra khóa: thử model đang chọn; nếu lỗi không phải hết lượt thì hỏi danh sách model của khóa và tự đổi sang model dùng được
+  const provMsg = (e) => String((e && e.message) || "").replace(/^[^:]*báo lỗi:\s*/, "").slice(0, 160);
+  async function verifyKey(pv, key, model, onStep) {
+    const test = (m) => rawAI0({ pv, key, model: m, via: "own" }, "Trả lời đúng một từ.", "Nói: OK");
+    let first;
+    try { await test(model); return { model }; } catch (e) { if (e.quota) return { model, quota: true }; if (e.net) throw Object.assign(Error("Không kết nối được tới " + ((OWNP[pv] || {}).n || pv) + ". Kiểm tra Internet, hoặc mạng trường đang chặn trang này."), { net: true }); first = e; }
+    onStep && onStep("Model “" + model + "” chưa dùng được, đang tìm model khác cho khóa này…");
+    let ids = [];
+    try { ids = await listModels(pv, key); }
+    catch (e2) {
+      if (e2.quota) return { model, quota: true };
+      throw Object.assign(Error("Khóa không hợp lệ hoặc chưa được bật quyền dùng API. Bạn kiểm tra đã sao chép đủ khóa và đúng hãng chưa nhé. (" + ((OWNP[pv] || {}).n || pv) + " báo: " + provMsg(e2.status ? e2 : first) + ")"), { badKey: true });
+    }
+    for (const m of ids.filter((x) => x !== model).slice(0, 4)) {
+      try { await test(m); return { model: m, switched: true }; } catch (e3) { if (e3.quota) return { model: m, quota: true, switched: true }; }
+    }
+    throw Error("Khóa hợp lệ nhưng chưa gọi được model nào" + (ids.length ? "" : " (khóa chưa có model nào)") + ". " + ((OWNP[pv] || {}).n || pv) + " báo: " + provMsg(first));
+  }
+  KP.verifyKey = verifyKey;
   const mkPv = () => (typeof UI_MK !== "undefined" && UI_MK.pv) || "gemini";
   function mdlGo(which, force) {
     if (which === "mk") { const k = (document.getElementById("kp-mk-key")?.value || "").trim(); if (!k) { const st = document.getElementById("kp-mk-mdlst"); if (st && force) st.textContent = "Dán khóa vào ô Khóa trước, rồi bấm Lấy danh sách."; return; } return fillModels("kp-mk-model", mkPv(), k, OWNP[mkPv()].m, "kp-mk-mdlst"); }
@@ -4316,7 +4344,7 @@ render();
   const saveMyKeys = (o) => save(MYKEY + activeUser.id, { mode: o.mode, list: o.list.slice(0, 10) });
   const myKey = () => {
     try {
-      if (!isStudent() || !activeUser || !cfg().allowOwnKey) return null;
+      if (!activeUser || (isStudent() && !cfg().allowOwnKey)) return null;
       const o = myKeysRaw();
       return o.list.length ? o : null;
     } catch {
@@ -4340,14 +4368,23 @@ render();
   KP.aiReady = aiReady;
   KP.surveyOpen = () => cfg().surveyOpen;
 
+  // gọi AI có giới hạn thời gian: quá lâu không trả lời thì dừng, Kiến chuyển khóa khác hoặc trả lời bằng tài liệu
+  let AI_WAIT = 60000;
+  KP.setAiWait = (ms) => (AI_WAIT = ms);
   async function jfetch(url, opt, who) {
-    let r;
+    let r, t;
+    const ac = typeof AbortController === "function" ? new AbortController() : null;
+    const ms = (opt && opt.waitMs) || AI_WAIT;
+    const timer = ac ? setTimeout(() => ac.abort(), ms) : 0;
     try {
-      r = await fetch(url, opt);
+      r = await fetch(url, ac ? { ...opt, signal: ac.signal } : opt);
+      t = await r.text();
     } catch (e) {
+      clearTimeout(timer);
+      if (ac && ac.signal.aborted) throw Object.assign(Error(who + " chờ quá " + Math.round(ms / 1000) + " giây vẫn chưa trả lời (mạng chậm hoặc model đang quá tải)."), { timeout: true });
       throw Object.assign(Error("Không kết nối được " + who + ". Kiểm tra Internet. (" + e.message + ")"), { net: true });
     }
-    const t = await r.text();
+    clearTimeout(timer);
     let b = {};
     try {
       b = JSON.parse(t || "{}");
@@ -4383,6 +4420,7 @@ render();
       } catch (e) {
         err = e;
         if (k.via === "shared" && e.quota) save(SHARED_OUT, Date.now() + 10 * 60000);
+        if (e.timeout) continue; // chờ quá lâu: thử khóa kế tiếp
         if (k.via === "own") {
           if (e.quota) markOwn(k.kid, { out: Date.now() + 15 * 60000 });
           else if (e.badKey) { markOwn(k.kid, { bad: true }); e.ownBad = true; }
@@ -4392,6 +4430,7 @@ render();
       }
     }
     if (err && err.quota) err.allOut = true;
+    if (err && err.timeout) { err.offline = true; err.message = "Kiến chờ AI quá lâu mà chưa có trả lời (mạng chậm hoặc AI đang quá tải). Dưới đây là đoạn tài liệu liên quan, bạn thử hỏi lại sau ít phút nhé."; }
     throw err;
   }
   function markOwn(kid, patch) {
@@ -4427,7 +4466,7 @@ render();
     } else if (OWNP[pv] && OWNP[pv].chat) {
       const body = { model, messages: [{ role: "system", content: system }, { role: "user", content: user }], temperature: 0.3, max_tokens: json ? 8000 : 2000 };
       if (json) body.response_format = { type: "json_object" };
-      const b = await jfetch(OWNP[pv].chat, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + key }, body: JSON.stringify(body) }, OWNP[pv].n);
+      const b = await jfetch(OWNP[pv].chat, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + key }, body: JSON.stringify(body), waitMs: json ? 180000 : AI_WAIT }, OWNP[pv].n);
       text = ((b.choices && b.choices[0] && b.choices[0].message) || {}).content || "";
     } else if (pv === "anthropic") {
       const b = await jfetch(
@@ -4436,6 +4475,7 @@ render();
           method: "POST",
           headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
           body: JSON.stringify({ model, max_tokens: json ? 16000 : 1800, system, messages: [{ role: "user", content: user }] }),
+          waitMs: json ? 180000 : AI_WAIT,
         },
         "Claude",
       );
@@ -4445,7 +4485,7 @@ render();
       if (json) body.text = { format: { type: "json_object" } };
       const b = await jfetch(
         "https://api.openai.com/v1/responses",
-        { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + key }, body: JSON.stringify(body) },
+        { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + key }, body: JSON.stringify(body), waitMs: json ? 180000 : AI_WAIT },
         "ChatGPT (OpenAI)",
       );
       text =
@@ -4458,15 +4498,20 @@ render();
       const gen = { maxOutputTokens: json ? 8000 : 2000, temperature: 0.3 };
       if (json) gen.responseMimeType = "application/json";
       else if (/2\.5-flash/.test(model)) gen.thinkingConfig = { thinkingBudget: 0 };
-      const b = await jfetch(
+      else if (/gemini-[3-9]/.test(model)) gen.thinkingConfig = { thinkingLevel: "low" };
+      const call = (g) => jfetch(
         "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent",
         {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-          body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: user }] }], systemInstruction: { parts: [{ text: system }] }, generationConfig: gen }),
+          body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: user }] }], systemInstruction: { parts: [{ text: system }] }, generationConfig: g }),
+          waitMs: json ? 180000 : AI_WAIT,
         },
         "Gemini",
       );
+      let b;
+      try { b = await call(gen); }
+      catch (e) { if (e.status === 400 && gen.thinkingConfig && /think/i.test(e.message)) { delete gen.thinkingConfig; b = await call(gen); } else throw e; }
       const cand = b.candidates && b.candidates[0];
       text = cand && cand.content && cand.content.parts ? cand.content.parts.map((p) => (p.thought ? "" : p.text || "")).join("") : "";
     }
@@ -4593,18 +4638,20 @@ render();
     if (o.list.length >= 10) return (msg.textContent = "Đã đủ 10 khóa. Xóa bớt khóa cũ để thêm khóa mới.");
     msg.textContent = `Đang kiểm tra khóa với ${P.n}…`;
     btn.disabled = true;
-    let note = "";
+    let note = "", useModel = model;
     try {
-      await rawAI({ pv, key, model, via: "own" }, "Trả lời đúng một từ.", "Nói: OK");
+      const v = await verifyKey(pv, key, model, (t) => (msg.textContent = t));
+      useModel = v.model;
+      if (v.switched) note += ` Đã tự chọn model “${v.model}”.`;
+      if (v.quota) note += " Khóa hợp lệ nhưng đang hết lượt, Kiến sẽ dùng khi khóa có lượt lại.";
     } catch (er) {
-      if (er.quota) note = " Khóa hợp lệ nhưng đang hết lượt, Kiến sẽ dùng khi khóa có lượt lại.";
-      else {
+      {
         btn.disabled = false;
-        msg.textContent = er.badKey || er.status === 400 || er.status === 401 ? "Khóa không hợp lệ. Bạn kiểm tra lại đã sao chép đủ khóa và đúng hãng chưa nhé." : er.status === 404 ? "Không tìm thấy mô hình “" + model + "”. Mở “Tùy chọn mô hình” để sửa tên." : "Chưa kiểm tra được khóa: " + er.message;
+        msg.textContent = er.message;
         return;
       }
     }
-    o.list.push({ id: "k" + Date.now().toString(36), pv, key, model, added: Date.now(), out: note ? Date.now() + 15 * 60000 : 0 });
+    o.list.push({ id: "k" + Date.now().toString(36), pv, key, model: useModel, added: Date.now(), out: /hết lượt/.test(note) ? Date.now() + 15 * 60000 : 0 });
     saveMyKeys(o);
     toast(`Đã thêm khóa ${P.n} (số ${o.list.length}).${note}`);
     redrawMK(`✓ Đã thêm khóa ${P.n}.${note}`);
@@ -7695,7 +7742,7 @@ render();
     if (a === "gen-questions") {
       if (!aiReady()) {
         const adm = activeUser?.role === "admin";
-        modal(`<h2>🔑 Chưa có khóa AI của bộ môn</h2><p class="modal-text">Để AI soạn câu hỏi, hệ thống cần một <b>khóa API</b> (giống mật khẩu để dùng dịch vụ AI như Google Gemini). Hiện bộ môn chưa nhập khóa nào nên AI chưa soạn được.</p>${adm ? `<ol class="kp-nokey-steps"><li>Bấm nút <b>Mở cài đặt AI</b> bên dưới (hoặc vào <b>Cài đặt → AI & học tập</b>).</li><li>Ở khung <b>Kết nối AI cho trợ giảng</b>, chọn Google Gemini, bấm link lấy khóa miễn phí ở Google AI Studio.</li><li>Dán khóa vào ô, bấm <b>Lưu</b>. Quay lại đây bấm “AI soạn câu hỏi”.</li></ol><div class="row" style="margin-top:14px"><button class="btn" id="kp-nokey-go">Mở cài đặt AI</button><button class="btn secondary" data-kp="close-modal">Để sau</button></div>` : `<div class="source-note">Chỉ Admin nhập được khóa AI. Bạn báo Admin vào <b>Cài đặt → AI & học tập</b> để nhập khóa. Trong lúc chờ, bạn vẫn có thể bấm <b>Thêm câu thủ công</b>.</div><div class="row" style="margin-top:14px"><button class="btn secondary" data-kp="close-modal">Đã hiểu</button></div>`}`);
+        modal(`<h2>🔑 Chưa có khóa AI của bộ môn</h2><p class="modal-text">Để AI soạn câu hỏi, hệ thống cần một <b>khóa API</b> (giống mật khẩu để dùng dịch vụ AI như Google Gemini). Hiện bộ môn chưa nhập khóa nào nên AI chưa soạn được.</p>${adm ? `<ol class="kp-nokey-steps"><li>Bấm nút <b>Mở cài đặt AI</b> bên dưới (hoặc vào <b>Cài đặt → AI & học tập</b>).</li><li>Ở khung <b>Kết nối AI cho trợ giảng</b>, chọn Google Gemini, bấm link lấy khóa miễn phí ở Google AI Studio.</li><li>Dán khóa vào ô, bấm <b>Lưu</b>. Quay lại đây bấm “AI soạn câu hỏi”.</li></ol><div class="row" style="margin-top:14px"><button class="btn" id="kp-nokey-go">Mở cài đặt AI</button><button class="btn secondary" data-kp="close-modal">Để sau</button></div>` : `<div class="source-note">Khóa chung do Admin nhập ở <b>Cài đặt → AI & học tập</b>. Bạn cũng có thể <b>thêm khóa AI riêng</b> của mình (nhiều tài khoản Google hoặc Groq, Grok…) để soạn câu hỏi ngay. Hoặc bấm <b>Thêm câu thủ công</b>.</div><div class="row" style="margin-top:14px"><button class="btn" data-kp-mykey="open">🔑 Thêm khóa AI riêng</button><button class="btn secondary" data-kp="close-modal">Để sau</button></div>`}`);
         const go = document.getElementById("kp-nokey-go");
         if (go) go.onclick = () => { document.getElementById("modal").close(); state.admin = "settings"; staffUI.accountTab = "config"; render(); scrollTo(0, 0); };
         return;
@@ -7812,7 +7859,7 @@ render();
       if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (er) {} }
     }, 220);
   });
-  document.addEventListener("submit", (e) => {
+  document.addEventListener("submit", async (e) => {
     if (e.target.id === "kp-learn-form") {
       e.preventDefault();
       const n = (id, d) => Number($(id)?.value) || d;
@@ -7828,10 +7875,20 @@ render();
       key = $("#kp-key").value.trim();
     if (!/^[a-zA-Z0-9._:\/-]{1,100}$/.test(model)) return toast("Tên model không hợp lệ.");
     const keys = { ...c.keys };
+    let useModel = model, note = "";
+    const testKey = key || keys[pv];
+    if (testKey && (key || model !== c.models[pv])) {
+      const st = $("#kp-ai-status"), btn = e.target.querySelector("button:not([type=button])");
+      if (st) st.textContent = "Đang kiểm tra khóa và model…";
+      if (btn) btn.disabled = true;
+      try { const v = await verifyKey(pv, testKey, model, (t) => st && (st.textContent = t)); useModel = v.model; if (v.switched) note += ` Đã tự chọn model “${v.model}”.`; if (v.quota) note += " Khóa đang hết lượt, Kiến sẽ dùng khi có lượt lại."; }
+      catch (er) { if (btn) btn.disabled = false; if (st) st.textContent = "⚠️ Chưa lưu. " + er.message; return; }
+      if (btn) btn.disabled = false;
+    }
     if (key) keys[pv] = key;
-    saveCfg({ provider: pv, models: { ...c.models, [pv]: model }, keys, });
+    saveCfg({ provider: pv, models: { ...c.models, [pv]: useModel }, keys, });
     $("#kp-key").value = "";
-    toast(keys[pv] ? "Đã lưu. Kiến sẽ trả lời bằng " + PROVIDERS[pv] + "." : "Đã lưu cấu hình, nhưng chưa có khóa cho " + PROVIDERS[pv] + ".");
+    toast((keys[pv] ? "Đã lưu. Kiến sẽ trả lời bằng " + PROVIDERS[pv] + "." : "Đã lưu cấu hình, nhưng chưa có khóa cho " + PROVIDERS[pv] + ".") + note);
     render();
   });
 
@@ -10276,7 +10333,7 @@ document.addEventListener("change", (e) => {
 
   // ---------- Trang chủ: thông tin & hồ sơ của tôi · Bảng tin: tình hình tuần, việc cần lưu ý, hoạt động, tổng hợp tài khoản
   function homePage() {
-    return `${facultyPageHeading("Trang chủ", isAdm() ? "Thông tin quản trị viên, hồ sơ và tài khoản của bạn." : "Thông tin giảng viên, hồ sơ, tài khoản và các bài bạn phụ trách.")}${(() => { if (typeof facultyProfilePanel !== "function") return ""; const box = document.createElement("div"); box.innerHTML = facultyProfilePanel(); box.querySelector(".faculty-profile-card")?.remove(); if (!isAdm()) box.querySelector(".faculty-profile-layout > section.card .card-title")?.insertAdjacentHTML("beforeend", `<button class="btn secondary" data-own-staff-password>🔑 Đổi mật khẩu</button>`); box.querySelector(".faculty-profile-layout")?.classList.add("kp-home-one"); return box.innerHTML; })()}`;
+    return `${facultyPageHeading("Trang chủ", isAdm() ? "Thông tin quản trị viên, hồ sơ và tài khoản của bạn." : "Thông tin giảng viên, hồ sơ, tài khoản và các bài bạn phụ trách.")}${(() => { if (typeof facultyProfilePanel !== "function") return ""; const box = document.createElement("div"); box.innerHTML = facultyProfilePanel(); box.querySelector(".faculty-profile-card")?.remove(); if (!isAdm()) box.querySelector(".faculty-profile-layout > section.card .card-title")?.insertAdjacentHTML("beforeend", `<button class="btn secondary" data-own-staff-password>🔑 Đổi mật khẩu</button>`); box.querySelector(".faculty-profile-layout")?.classList.add("kp-home-one"); return box.innerHTML; })()}${(() => { const mk = KP.myKey ? KP.myKey() : null, n = mk ? mk.list.length : 0; return `<section class="card kp-home-mk"><div class="card-title"><h2>🔑 Khóa AI riêng của bạn</h2><span class="tiny-tag">${n ? n + " khóa" : "Chưa có"}</span></div><p class="kp-muted" style="margin:0 0 12px;font-size:13.5px">Thêm khóa API của nhiều tài khoản Google hoặc hãng khác (Groq, OpenRouter, Grok, ChatGPT, Claude). Khi khóa chung của bộ môn hết lượt, Kiến tự chuyển sang khóa của bạn, khóa này hết thì đổi sang khóa kế tiếp.</p><button class="btn" data-kp-mykey="open">${n ? "Quản lý khóa" : "+ Thêm khóa AI"}</button></section>`; })()}`;
   }
   const JUMP = [[".kp-week", "📅 Tuần này"], [".kp-pf-note", "🆕 Hồ sơ vừa cập nhật"], [".kp-ov2 > section:nth-of-type(1)", "⚠️ Việc cần lưu ý"], [".kp-ov2 > section:nth-of-type(2)", "🕒 Hoạt động gần đây"], [".kp-ov-acc", "📋 Tổng hợp tài khoản"]];
   function boardPage(html) {
@@ -10390,6 +10447,21 @@ document.addEventListener("click", (e) => {
   addEventListener("resize", () => { try { setH(); } catch (e) {} }, { passive: true });
   addEventListener("scroll", () => { try { top(); } catch (e) {} }, { passive: true });
 })();
+
+// lưới an toàn: nếu trang lỗi khi bấm tab thì hiện thông báo rõ ràng thay vì đứng im
+window.addEventListener("load", () => {
+  const inner = render;
+  render = function () {
+    try { return inner.apply(this, arguments); }
+    catch (e) {
+      console.error(e);
+      const at = String(e && e.stack || "").split("\n").slice(1, 3).map((s) => s.trim().replace(/^at\s+/, "").replace(/\(?file:\/\/[^)]*\/([^/:)]+):(\d+):\d+\)?/, "$1:$2")).join(" ← ");
+      const pc = document.getElementById("page-content");
+      const box = `<section class="card kp-errcard"><h2>⚠️ Trang “${String(state.admin || state.page)}” gặp lỗi khi mở</h2><p>Bạn chụp màn hình khung này gửi cho người phát triển để sửa nhé. Các trang khác vẫn dùng bình thường.</p><pre>${String(e && e.message || e).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" })[c])}\n${at.replace(/[<>&]/g, "")}</pre><button class="btn" onclick="state.admin='home';render();">Về Trang chủ</button></section>`;
+      if (pc) pc.innerHTML = box; else if (typeof toast === "function") toast("Có lỗi: " + (e && e.message));
+    }
+  };
+});
 
 </script>
 <script>
@@ -15470,14 +15542,19 @@ ${h.length ? `<h3 class="ph-h">Ảnh trước đây</h3><div class="ph-hist">${h
     opt = opt || {};
     const body = JSON.stringify(Object.assign({ action, token: opt.token !== undefined ? opt.token : tok }, data || {}));
     let r;
+    const ac = (action === "ai" || action === "relay") && typeof AbortController === "function" ? new AbortController() : null;
+    const timer = ac ? setTimeout(() => ac.abort(), data && data.json ? 240000 : 90000) : 0;
     try {
-      r = await fetch(opt.url || url(), { method: "POST", body, keepalive: !!opt.keepalive && body.length < 60000, redirect: "follow" });
+      r = await fetch(opt.url || url(), { method: "POST", body, keepalive: !!opt.keepalive && body.length < 60000, redirect: "follow", ...(ac ? { signal: ac.signal } : {}) });
     } catch (e) {
+      clearTimeout(timer);
+      if (ac && ac.signal.aborted) throw Object.assign(Error("Máy chủ chờ AI quá lâu chưa trả lời."), { timeout: true });
       netDown = true;
       throw Object.assign(Error("Không kết nối được máy chủ. Kiểm tra Internet rồi thử lại."), { net: true });
     }
     let j = null;
     try { j = await r.json(); } catch (e) {}
+    clearTimeout(timer);
     if (!j) throw Error("Máy chủ trả lời không hợp lệ (mã " + r.status + "). Kiểm tra lại địa chỉ Web App và quyền truy cập “Bất kỳ ai”.");
     netDown = false;
     if (!j.ok) {
@@ -15980,4 +16057,3 @@ ${h.length ? `<h3 class="ph-h">Ảnh trước đây</h3><div class="ph-hist">${h
 
 </script>
 </body></html>
-
