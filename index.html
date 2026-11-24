@@ -3787,6 +3787,13 @@ html body .kd-prog-sub{font-size:12.5px;color:#6b6a85;text-align:center;margin:4
 .kp-sources details.kp-flash{animation:kpflash 1.6s ease}
 @keyframes kpflash{0%,40%{background:#fff4c2}100%{background:transparent}}
 
+html body .ks-lgrp h5 .ks-galll{margin-left:auto;display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:99px;border:1.5px solid #dddcf5;background:#f1f1fb;font-size:13px;font-weight:700;color:#1f1a78;cursor:pointer;white-space:nowrap}
+html body .ks-lgrp h5 .ks-galll input{width:16px;height:16px;margin:0;accent-color:#4c46c1}
+html body .ks-lgrp h5 .ks-galll.on{background:#e9e8ff;border-color:#4c46c1}
+html body .ks-lgrp-SL h5 .ks-galll{color:#b4235a}
+html body .ks-lgrp-SL h5 .ks-galll input{accent-color:#b4235a}
+html body .ks-lgrp-SL h5 .ks-galll.on{background:#fdeef4;border-color:#b4235a}
+
 </style>
 </head><body><div id="app"></div><div id="toast" role="status"></div><dialog id="modal"><div id="modal-body"></div><button class="modal-close icon-button" aria-label="Đóng">✕</button></dialog>
 <script type="text/plain" id="lib-pdf">/**
@@ -14100,7 +14107,7 @@ ${d.status === "published" ? `<div class="ks-warn">⚠ Tài liệu đang hiển 
     const canDelL = (l) => ed && (isAdm() || (l.custom ? canCL(l) : pick(l.id)));
     const tile = (l) => `<label class="kd-chk ${l.custom ? "ks-cust" : ""} ${pick(l.id) ? "" : "kd-dim"} ${d.lessons.includes(l.id) ? "on" : ""}"><input type="${isRef(d) ? "checkbox" : "radio"}" name="kd-perm-${d.id}" data-kd-perm="${l.id}" ${d.lessons.includes(l.id) ? "checked" : ""} ${pick(l.id) && ed ? "" : "disabled"}><b>${l.id}</b><span>${esc(l.name)}</span>${l.custom ? `<em class="ks-newtag">NEW</em>` : ""}${d.lessons.includes(l.id) && !isRef(d) ? `<small>${nOf(l.id)} mục</small>` : ""}${l.custom && canCL(l) ? `<button type="button" class="ks-cl" data-ks="cl-ren" data-l="${l.id}" title="Sửa tên bài">✎</button>` : ""}${canDelL(l) ? `<button type="button" class="ks-cl danger" data-ks="cl-del" data-l="${l.id}" title="Xóa bài ${l.id}">✕</button>` : ""}</label>`;
     const addT = (sg) => !ed ? "" : UI.addSg === sg ? `<div class="ks-addt on"><input data-ks-nl="${sg}" maxlength="80" placeholder="Tên bài ${sg === "SL" ? "Sinh lý" : "Giải phẫu"} mới"><div class="row"><button type="button" class="btn" data-ks="newl" data-sg="${sg}">Thêm</button><button type="button" class="text-button" data-ks="addsg" data-sg="">Hủy</button></div></div>` : `<button type="button" class="ks-addt" data-ks="addsg" data-sg="${sg}"><b>+</b><span>Thêm bài ${sg === "SL" ? "Sinh lý" : "Giải phẫu"}</span></button>`;
-    const grp = (sg, t, ic) => { const L = lessons.filter((l) => l.s === sg); return `<div class="ks-lgrp ks-lgrp-${sg}"><h5>${ic} ${t} <small>${L.length} bài · đã chọn ${L.filter((l) => d.lessons.includes(l.id)).length}</small></h5><div class="kd-perm-grid ks-grid">${L.map(tile).join("")}${addT(sg)}</div></div>`; };
+    const grp = (sg, t, ic) => { const L = lessons.filter((l) => l.s === sg); const pg = L.filter((l) => isAdm() || assigned().includes(l.id)), gOn = pg.length > 0 && pg.every((l) => d.lessons.includes(l.id)); return `<div class="ks-lgrp ks-lgrp-${sg}"><h5>${ic} ${t} <small>${L.length} bài · đã chọn ${L.filter((l) => d.lessons.includes(l.id)).length}</small>${ed && isRef(d) && pg.length ? `<label class="ks-galll ${gOn ? "on" : ""}"><input type="checkbox" data-ks-galll="${sg}" ${gOn ? "checked" : ""}><span>Tất cả bài ${t}</span></label>` : ""}</h5><div class="kd-perm-grid ks-grid">${L.map(tile).join("")}${addT(sg)}</div></div>`; };
     const lesF = (no) => fld(no, isRef(d) ? "Bài được dùng tài liệu này" : "Bài của tài liệu bài giảng này", !d.lessons.length ? pill("warn", "Chưa chọn bài nào") : !isRef(d) && d.lessons.length > 1 ? pill("warn", `Đang gắn ${d.lessons.length} bài, chỉ được 1 bài`) : pill("ok", isRef(d) ? `Đã chọn ${d.lessons.length} bài: ${d.lessons.join(", ")}` : `Bài ${d.lessons[0]}`), `<p class="ks-help">${isRef(d) ? "Tự tích các bài sẽ dùng tài liệu này. Tài liệu tham khảo dùng được cho nhiều bài." : "Mỗi tài liệu bài giảng chỉ thuộc <b>1 bài</b>: bấm chọn đúng bài của tài liệu này, chọn bài khác thì bài cũ tự bỏ. Cần dùng chung cho nhiều bài thì tải lên ở mục Tài liệu tham khảo."} Thiếu bài thì bấm ô <b>+ Thêm bài</b> ở cuối phần Giải phẫu hoặc Sinh lý; bài thừa thì bấm ✕. Mọi lần thêm, xóa bài đều được ghi vào Thay đổi hồ sơ.</p>${ed && isRef(d) ? `<label class="ks-alll ${allOn ? "on" : ""}"><input type="checkbox" data-ks-alll ${allOn ? "checked" : ""}><b>Chọn tất cả các bài</b><span>${pool.length} bài${isRef(d) ? " · hợp với sách, giáo trình tham khảo dùng chung" : ""}</span></label>` : ""}${grp("GP", "Giải phẫu", `<i class=\"ks-gdot gp\"></i>`)}${grp("SL", "Sinh lý", `<i class=\"ks-gdot sl\"></i>`)}`);
     const W = d.where || (d.svRead ? "end" : "none");
     const nLect = (L) => docs.filter((x) => !x.deleted && x.status === "published" && !isRef(x) && x.lessons.includes(L)).length;
@@ -14602,12 +14609,13 @@ ${acc(d, panel.replace(/class="ks-fno">\d+\./g, `class="ks-fno">${ORD(d).indexOf
       } else { d.pos = Math.max(1, Math.min(20, +t.value || 1)); d.where = "pos"; }
       d.svRead = d.where !== "none"; touch(d); persist(true); return render();
     }
-    if (t.matches?.("[data-ks-kind]") || t.matches?.("[data-ks-svread]") || t.matches?.("[data-ks-alll]")) {
+    if (t.matches?.("[data-ks-kind]") || t.matches?.("[data-ks-svread]") || t.matches?.("[data-ks-alll]") || t.matches?.("[data-ks-galll]")) {
       const d = get(UI.open); if (!d || !canEdit(d)) return;
       if (t.matches("[data-ks-kind]")) { d.kind = t.value; UI.step = 1; if (UI.lf === "NONE" && isRef(d)) UI.lf = "ALL"; }
       if (t.matches("[data-ks-svread]")) d.svRead = t.checked;
-      if (t.matches("[data-ks-alll]")) {
-        const pool = lessons.filter((l) => isAdm() || assigned().includes(l.id)).map((l) => l.id);
+      if (t.matches("[data-ks-alll]") || t.matches("[data-ks-galll]")) {
+        const sg = t.dataset.ksGalll || "";
+        const pool = lessons.filter((l) => (isAdm() || assigned().includes(l.id)) && (!sg || l.s === sg)).map((l) => l.id);
         if (t.checked) { d.lessons = [...new Set([...d.lessons, ...pool])].sort(); d.sections.forEach((x) => { if (!x.lesson && x.guess && d.lessons.includes(x.guess)) x.lesson = x.guess; }); }
         else { d.lessons = d.lessons.filter((x) => !pool.includes(x)); d.sections.forEach((x) => { if (x.lesson && !d.lessons.includes(x.lesson)) x.lesson = ""; }); }
       }
